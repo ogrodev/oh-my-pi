@@ -49,6 +49,9 @@ const codingAgentBucketPlans: Record<CodingAgentBucket, { label: string; paralle
 // Smaller workspace packages stay separate from native/TUI/integration suites so
 // their short TS suites can run together. CI still downloads the Linux x64 native
 // addon before this bucket: shared utility barrels may load native-backed modules.
+// mnemopi is intentionally excluded — its embedding suites depend on a ~270MB
+// fastembed model absent from CI runners, so they flake/time out under the parallel
+// bucket; run `bun --cwd=packages/mnemopi test` locally instead.
 const fastWorkspacePackages = [
 	"packages/hashline",
 	"packages/wire",
@@ -57,7 +60,6 @@ const fastWorkspacePackages = [
 	"packages/ai",
 	"packages/snapcompact",
 	"packages/agent",
-	"packages/mnemopi",
 ];
 
 // These suites cover the native package, TUI/browser-ish behavior, local servers,
@@ -173,7 +175,7 @@ function workspaceTestCommand(pkg: string, parallel: number, smol = false): Test
 	return {
 		label: pkg,
 		cwd: pkg,
-		command: ["bun", ...(smol ? ["--smol"] : []), "test", `--parallel=${parallel}`, "--only-failures"],
+		command: ["bun", ...(smol ? ["--smol"] : []), "test", `--parallel=${parallel}`],
 	};
 }
 
@@ -278,7 +280,7 @@ async function commandsForMode(mode: Mode): Promise<TestCommand[]> {
 	switch (mode) {
 		case "workspace":
 			return [
-				...fastWorkspacePackages.map(pkg => workspaceTestCommand(pkg, 4)),
+				...fastWorkspacePackages.map(pkg => workspaceTestCommand(pkg, 8)),
 				{
 					label: "scripts",
 					cwd: ".",
@@ -286,7 +288,7 @@ async function commandsForMode(mode: Mode): Promise<TestCommand[]> {
 				},
 			];
 		case "native":
-			return nativeAndIntegrationPackages.map(pkg => workspaceTestCommand(pkg, 1, true));
+			return nativeAndIntegrationPackages.map(pkg => workspaceTestCommand(pkg, 4, true));
 		case "coding-agent-singleton":
 			return [await codingAgentTestCommand("singleton")];
 		case "coding-agent-ui":

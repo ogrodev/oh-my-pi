@@ -26,6 +26,12 @@ concurrency:
 
 env:
    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+   # glibc floor for shipped linux native addons. The omp-kata runner image is
+   # Ubuntu 24.04 (glibc 2.39); a plain native build links 2.39 symbol versions
+   # and fails to dlopen on older distros. Building the linux-gnu addons through
+   # cargo-zigbuild against this floor keeps them portable. Bump to raise the
+   # minimum supported glibc.
+   GLIBC_FLOOR: "2.17"
 
 permissions:
    contents: read
@@ -218,6 +224,7 @@ jobs:
               platform: linux
               arch: x64
               variant: ${{ matrix.variant }}
+              glibc: ${{ env.GLIBC_FLOOR }}
               rust_checks: ${{ matrix.rust_checks && 'true' || 'false' }}
               save_cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
@@ -244,6 +251,7 @@ jobs:
               arch: ${{ matrix.arch }}
               variant: ${{ matrix.variant }}
               target: ${{ matrix.target }}
+              glibc: ${{ matrix.platform == 'linux' && env.GLIBC_FLOOR || '' }}
               save_cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
    native_cross_platform_macos:
@@ -493,9 +501,29 @@ jobs:
          - uses: ./.github/actions/ensure-rust-toolchain
            with:
               toolchain: nightly-2026-04-29
-         - uses: ./.github/actions/ensure-sccache
+         - name: Detect runner environment
+           id: detect
+           shell: bash
+           run: |
+              # $SCCACHE_BUCKET is injected only on self-hosted omp-kata pods; its
+              # presence selects baked sccache + shared S3. GitHub-hosted runners
+              # (PRs) need sccache-action to export the GHA cache URL/token into the
+              # step env — a bare binary install leaves SCCACHE_GHA_ENABLED set with
+              # no cache URL, so sccache server startup fails ("cache url for ghac
+              # not found"). Mirrors the build-native action's sccache wiring.
+              if [ -n "${SCCACHE_BUCKET:-}" ]; then
+                echo "on_infra=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "on_infra=false" >> "$GITHUB_OUTPUT"
+              fi
+         - name: Ensure baked sccache (omp-kata)
+           if: steps.detect.outputs.on_infra == 'true'
+           uses: ./.github/actions/ensure-sccache
            with:
               version: "0.15.0"
+         - name: Setup sccache (GitHub-hosted)
+           if: steps.detect.outputs.on_infra == 'false'
+           uses: mozilla-actions/sccache-action@v0.0.10
          - name: Enable sccache for cargo
            # Conditional backend: self-hosted omp-kata injects a shared S3
            # (RustFS) sccache via pod env; GitHub-hosted runners keep the GHA

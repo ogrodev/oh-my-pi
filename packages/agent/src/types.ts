@@ -17,8 +17,9 @@ import type {
 	ToolResultMessage,
 	TSchema,
 } from "@oh-my-pi/pi-ai";
+import type { ToolCallSyntax } from "@oh-my-pi/pi-ai/grammar";
+import type { HarmonyAuditEvent } from "@oh-my-pi/pi-ai/utils/harmony-leak";
 import type { AppendOnlyContextManager } from "./append-only-context";
-import type { HarmonyAuditEvent } from "./harmony-leak";
 import type { AgentRunCoverage, AgentRunSummary } from "./run-collector";
 import type { AgentTelemetryConfig } from "./telemetry";
 
@@ -199,6 +200,27 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * then strips from arguments before executing tools.
 	 */
 	intentTracing?: boolean;
+	/**
+	 * Owned tool calling syntax.
+	 *
+	 * Undefined keeps provider-native tool calling. A syntax value sends no
+	 * native `tools`, forces `toolChoice` off, appends that syntax's tool catalog
+	 * instructions, re-encodes prior tool calls/results as text, and parses the
+	 * model's text output back into canonical `toolCall` blocks.
+	 */
+	toolCallSyntax?: ToolCallSyntax;
+	/**
+	 * When owned (in-band) tool calling is active and the model starts
+	 * fabricating a tool result inside its own turn, control how the loop reacts:
+	 * - `true` (default): abort the provider request immediately so it stops
+	 *   generating the hallucinated continuation (cheaper, lower latency).
+	 * - `false`: let the request finish and silently discard everything past the
+	 *   fabrication boundary (keeps the connection alive but pays for the tokens
+	 *   the model spends on the discarded tail).
+	 * Only meaningful when {@link toolCallSyntax} (or `PI_OWNED_TOOLS`) selects an
+	 * owned syntax; native tool calling never fabricates results in text.
+	 */
+	abortOnFabricatedToolResult?: boolean;
 	/**
 	 * Append-only context mode — stabilizes system prompt + tool spec bytes
 	 * across turns so provider prefix caches hit at maximum rate.
